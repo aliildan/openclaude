@@ -1,8 +1,18 @@
 # openclaude
+A tiny multi-provider router for **Claude Code** that lets you use **Ollama** (local & cloud) models inside the same Claude Code session as your normal **Anthropic Claude** subscription.
+
+## Commands
+
+| Command                       | What it does                                                |
+| ----------------------------- | ----------------------------------------------------------- |
+| `oc start`                    | Boot router (if needed); exec `claude` with router env set. |
+| `oc start --bridge=aggressive`| Also bind Sonnet+Opus picker slots to Ollama (3 slots vs 1).|
+| `oc start --no-discovery`     | Don't set the AUTH_TOKEN sentinel; alias slots only.        |
+| `oc stop`                     | Shut down the router daemon.                                |
+| `oc status`                   | Show daemon state + configured providers.                   |
+| `oc list`                     | List installed Ollama models with paste-ready /model lines. |
 
 ![openclaude /model picker screenshot](openclaude.png)
-
-A tiny multi-provider router for **Claude Code** that lets you use **Ollama** (local & cloud) models inside the same Claude Code session as your normal **Anthropic Claude** subscription.
 
 - **Subscription auth preserved** — the router forwards Claude Code's OAuth bearer to `api.anthropic.com` untouched. No `ANTHROPIC_API_KEY` required.
 - **All your Ollama models show up in `/model`** — pick them like any other model.
@@ -110,16 +120,7 @@ Then inside Claude Code:
 # or paste a raw "/model ollama-local:<name>" command
 ```
 
-## Commands
 
-| Command                       | What it does                                                |
-| ----------------------------- | ----------------------------------------------------------- |
-| `oc start`                    | Boot router (if needed); exec `claude` with router env set. |
-| `oc start --bridge=aggressive`| Also bind Sonnet+Opus picker slots to Ollama (3 slots vs 1).|
-| `oc start --no-discovery`     | Don't set the AUTH_TOKEN sentinel; alias slots only.        |
-| `oc stop`                     | Shut down the router daemon.                                |
-| `oc status`                   | Show daemon state + configured providers.                   |
-| `oc list`                     | List installed Ollama models with paste-ready /model lines. |
 
 ## Bridge modes for the alias slots
 
