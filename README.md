@@ -49,9 +49,23 @@ For inference, the router intercepts the sentinel token in the `Authorization` h
 
 Pass `oc start --no-discovery` to skip the sentinel: only the env-var-bound alias slots will appear in the picker, and OAuth flows untouched.
 
-## Install
+## Prerequisites
 
-Requires Node.js ≥ 20 and Claude Code (≥ v2.1.129) on your `PATH`.
+Install these first — openclaude is a router, not a replacement:
+
+- **Claude Code ≥ v2.1.129** — [claude.com/claude-code](https://claude.com/claude-code). The `claude` CLI must already be on your `PATH` and logged in (run `claude` once and complete the OAuth flow). `oc start` execs `claude` directly; if it's missing you'll see `failed to exec "claude": ENOENT`.
+- **Node.js ≥ 20** — [nodejs.org](https://nodejs.org). openclaude uses Node 20+ APIs (`fetch`, `ReadableStream`, `AbortSignal.timeout`).
+- **Ollama** — [ollama.com/download](https://ollama.com/download). Only required if you want to route to local or cloud Ollama models. Without Ollama, openclaude still works as a pure pass-through to api.anthropic.com, but there's nothing extra it adds in that mode.
+
+Quick check:
+
+```bash
+claude --version    # should print v2.1.129 or newer
+node --version      # should print v20.x or newer
+ollama --version    # optional, only if you want Ollama models
+```
+
+## Install
 
 The recommended way works on every platform — clone, then `npm link` to register `openclaude` / `oc` globally:
 
