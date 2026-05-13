@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { loadConfig, parseModelTarget } from "./config.js";
+import { loadConfig, parseModelTarget, interpolateEnv } from "./config.js";
 import { listLocalOllamaModels } from "../cli/ollama.js";
 import { sanitizeToolIds, sanitizeThinkingBlocks } from "./sanitize.js";
 import * as anthropicPassthrough from "./provider/anthropic-passthrough.js";
@@ -112,21 +112,35 @@ async function handleMessages(req, res, cfg) {
       signal: controller.signal,
     });
 
+    log(`← ${providerId}:${modelId} status ${upstream.status}`);
     res.statusCode = upstream.status;
     for (const [k, v] of upstream.headers.entries()) {
       if (k.toLowerCase() === "content-encoding") continue;
       if (k.toLowerCase() === "content-length") continue;
       res.setHeader(k, v);
     }
-    if (upstream.body) {
+
+    // For non-2xx non-streaming responses, peek the body once and log a snippet
+    // before forwarding it on. Diagnoses the common cause of retry loops
+    // (401 unauthorized, 404 model not found, 400 invalid body) without
+    // needing tcpdump.
+    const ct = upstream.headers.get("content-type") ?? "";
+    if (upstream.body && !upstream.ok && !ct.includes("text/event-stream")) {
+      const buf = await upstream.arrayBuffer();
+      const text = Buffer.from(buf).toString("utf8");
+      log(`!! upstream error body: ${text.slice(0, 400)}${text.length > 400 ? "…" : ""}`);
+      res.end(Buffer.from(buf));
+    } else if (upstream.body) {
       reader = upstream.body.getReader();
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         res.write(Buffer.from(value));
       }
+      res.end();
+    } else {
+      res.end();
     }
-    res.end();
   } catch (err) {
     // If the abort fired, the AbortError landed here — that's expected, not an
     // upstream failure. Anything else propagates to the outer error handler.
@@ -152,6 +166,13 @@ async function handleModels(_req, res, cfg) {
 
   for (const [providerId, provider] of Object.entries(cfg.providers ?? {})) {
     if (provider.type !== "ollama") continue;
+    // If a provider declared an apiKey template (e.g. "$OLLAMA_API_KEY") but
+    // the env var is unset, the provider would 401 on every call. Skip it
+    // entirely so we don't pollute the picker with unreachable entries.
+    if (provider.apiKey && !interpolateEnv(provider.apiKey)) {
+      log(`skipping discovery for "${providerId}" — apiKey template "${provider.apiKey}" resolves to empty`);
+      continue;
+    }
     let models = [];
     try { models = await listLocalOllamaModels(provider.baseUrl); } catch { /* offline ok */ }
     for (const m of models) {

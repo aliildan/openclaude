@@ -3,6 +3,7 @@ import { ensureDaemonRunning } from "../daemon.js";
 import { loadConfig } from "../../router/config.js";
 import { listLocalOllamaModels } from "../ollama.js";
 import { SENTINEL_AUTH_TOKEN, readOauthAccessToken } from "../../router/auth.js";
+import { interpolateEnv } from "../../router/config.js";
 
 // Friendly natural ID for the env-var alias slots (Custom/Sonnet/Opus). Claude
 // Code does not validate these strings, so the readable form survives intact
@@ -57,6 +58,16 @@ export async function start(args) {
     console.error(`[openclaude] WARNING: discovery mode requested but no OAuth token at ~/.claude/.credentials.json`);
     console.error(`[openclaude]          inference will fail. Run "claude" once and log in, then "oc start" again,`);
     console.error(`[openclaude]          or pass --no-discovery to skip auth substitution.`);
+  }
+
+  // Warn about providers whose apiKey template can't be resolved. Without this,
+  // a missing env var manifests as a silent 401 retry loop inside Claude Code.
+  for (const [pid, p] of Object.entries(cfg.providers ?? {})) {
+    if (p.type !== "ollama" || !p.apiKey) continue;
+    if (interpolateEnv(p.apiKey)) continue;
+    const missing = p.apiKey.match(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/)?.[1];
+    console.error(`[openclaude] WARNING: provider "${pid}" needs ${missing ? `env var ${missing}` : `apiKey "${p.apiKey}"`} — currently unset.`);
+    console.error(`[openclaude]          its models will be hidden from /model and any direct call returns 401.`);
   }
 
   const env = { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${status.port}` };

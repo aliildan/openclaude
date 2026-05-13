@@ -16,10 +16,26 @@ import { getCapabilities, stripUnsupportedContent } from "../capabilities.js";
 export async function dispatch({ provider, modelId, body, path, signal }) {
   const url = new URL(path, provider.baseUrl).toString();
 
-  const apiKey = interpolateEnv(provider.apiKey ?? "ollama");
+  // If the provider declared an apiKey template that interpolates to empty,
+  // surface a clear router-side error instead of forwarding a literal "ollama"
+  // string that the remote endpoint will reject as 401. Local Ollama
+  // configurations (no apiKey field) keep the legacy "ollama" placeholder.
+  let apiKey;
+  if (provider.apiKey) {
+    apiKey = interpolateEnv(provider.apiKey);
+    if (!apiKey) {
+      const missing = provider.apiKey.match(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/)?.[1];
+      const hint = missing ? ` — env var ${missing} is unset` : "";
+      const err = new Error(`provider "${provider.baseUrl}" requires apiKey${hint}`);
+      err.httpStatus = 401;
+      throw err;
+    }
+  } else {
+    apiKey = "ollama";
+  }
   const headers = new Headers({
     "content-type": "application/json",
-    "x-api-key": apiKey || "ollama",
+    "x-api-key": apiKey,
     "anthropic-version": "2023-06-01",
   });
 
