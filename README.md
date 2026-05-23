@@ -11,6 +11,8 @@ A tiny multi-provider router for **Claude Code** that lets you use **Ollama** (l
 | `oc stop`                     | Shut down the router daemon.                                |
 | `oc status`                   | Show daemon state + configured providers.                   |
 | `oc list`                     | List installed Ollama models with paste-ready /model lines. |
+| `oc model-subagent`           | Show/select subagent model for Claude Code.                 |
+| `oc model-subagent <n>`       | Set subagent model by number (takes effect on next start).  |
 
 ![openclaude /model picker screenshot](openclaude.png)
 
@@ -136,6 +138,34 @@ Then inside Claude Code:
 
 
 
+## Subagent model
+
+Claude Code's Explore, Plan, and general-purpose subagents can be expensive because they read many files and digest verbose output. `oc model-subagent` lets you redirect subagent traffic to a cheaper model (like a local Ollama model) while keeping your main conversation on Anthropic Claude.
+
+**How it works:** `oc model-subagent` writes a `subagentModel` key to `~/.openclaude/config.json`. When you next run `oc start`, the router sets `CLAUDE_CODE_SUBAGENT_MODEL` in the environment before launching `claude`. Claude Code reads this variable once at startup, so **changes do not take effect in a running session** — you must restart `oc` to apply them.
+
+```bash
+# Show current setting and available models
+oc model-subagent
+
+# Select a model by number
+oc model-subagent 2
+
+# Reset to Anthropic default
+oc model-subagent 0
+# or
+oc model-subagent default
+```
+
+The numbered menu includes:
+- **0** — default (Anthropic), unsets the override
+- **1..N** — installed Ollama models, routed as `ollama-local:<name>`
+- **Anthropic models** (e.g. Haiku) — noted as using your subscription
+
+If the configured model is no longer installed when you run `oc start`, the router falls back to the Anthropic default and prints a warning.
+
+`oc status` shows both the configured value and the value active in the current session, flagging any pending change.
+
 ## Bridge modes for the alias slots
 
 Even with discovery on, openclaude can also rebind Claude Code's built-in alias slots (Custom / Sonnet / Opus) to specific Ollama models so they get **friendly display names** in the picker. Aliases are filled from your Ollama list in order.
@@ -221,12 +251,13 @@ Edits are picked up on the next request — no daemon restart needed.
 npm test
 ```
 
-Five suites:
+Six suites:
 - `test/router-routing.test.js` — `parseModelTarget` resolves `provider:modelId` correctly, picks the right default, handles colons in model names.
 - `test/router-e2e.test.js` — boots the real router against a stub upstream; verifies Anthropic OAuth pass-through, Ollama dispatch with `x-api-key`, no header leakage between providers, HEAD reachability probe, and `claude-ol-` discovery-prefix decoding.
 - `test/stream-fixup.test.js` — SSE sanitizer: orphan deltas synthesize starts (text, thinking, tool_use), orphan stops dropped, message_stop auto-closes open blocks, well-formed streams pass through unchanged, chunk-boundary buffering correct.
 - `test/capabilities.test.js` — image stripping for text-only models, including nested images inside tool_result blocks.
 - `test/sanitize.test.js` — tool_use id rewriting + matching tool_result.tool_use_id remapping, multi-turn coherence, length cap; plus thinking-block signature validation (drop fakes, preserve real Anthropic signatures).
+- `test/model-subagent.test.js` — `resolveSubagentModel` validation (installed/missing Ollama models, Anthropic model passthrough), config round-trip (write/read `subagentModel`), default selection removes the key.
 
 ## Conversation-history sanitization
 

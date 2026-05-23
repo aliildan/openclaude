@@ -51,7 +51,7 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-async function handleMessages(req, res, cfg) {
+async function handleMessages(req, res, cfg, upstreamPath = "/v1/messages") {
   const body = await readJsonBody(req);
   if (typeof body.model !== "string" || body.model.length === 0) {
     return sendJson(res, 400, { type: "error", error: { type: "invalid_request_error", message: "missing model" } });
@@ -108,7 +108,7 @@ async function handleMessages(req, res, cfg) {
       modelId,
       body,
       headers: req.headers,
-      path: "/v1/messages",
+      path: upstreamPath,
       signal: controller.signal,
     });
 
@@ -203,6 +203,7 @@ export async function createRouter() {
       const url = new URL(req.url, "http://localhost");
       log(`<- ${req.method} ${url.pathname} (ua=${(req.headers["user-agent"] || "").slice(0, 40)})`);
       if (req.method === "POST" && url.pathname === "/v1/messages") return await handleMessages(req, res, cfg);
+      if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") return await handleMessages(req, res, cfg, "/v1/messages/count_tokens");
       if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) return await handleModels(req, res, cfg);
       if (req.method === "GET" && url.pathname === "/openclaude/status") {
         return sendJson(res, 200, { ok: true, providers: Object.keys(cfg.providers ?? {}) });

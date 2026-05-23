@@ -2,6 +2,8 @@ import { start } from "./commands/start.js";
 import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { list } from "./commands/list.js";
+import { modelSubagent } from "./commands/model-subagent.js";
+import { modelInternalClassifier } from "./commands/model-internal-classifier.js";
 
 const HELP = `openclaude — multi-provider router for Claude Code
 
@@ -11,6 +13,10 @@ Usage:
   openclaude stop                        Shut down the router daemon
   openclaude status                      Show router state and providers
   openclaude list                        List installed Ollama models with /model commands
+  openclaude model-subagent              Show/select subagent model for Claude Code
+  openclaude model-subagent <n>          Set subagent model (takes effect on next 'oc start')
+  openclaude internal-classifier         Show/select model for Claude Code's safety classifier
+  openclaude internal-classifier <n>     Set classifier model (default: Anthropic Haiku)
 
 Notes:
   - Authentication: Claude Code's normal OAuth subscription is preserved.
@@ -18,12 +24,14 @@ Notes:
   - The /model picker shows ONE Ollama model by default (the Custom slot).
     For more, paste "/model ollama-local:<name>" into /model — these don't
     show display names but they work.
-  - NEVER hijack the Haiku alias — it's used for Claude Code's safety classifier.
+  - internal-classifier overrides Claude Code's built-in Haiku model used for
+    safety classification and background tasks. Useful when Anthropic limits
+    are exhausted or when running fully offline.
 
 Config: ~/.openclaude/config.json (auto-seeded).
 `;
 
-const COMMANDS = { start, stop, status, list, help: () => console.log(HELP) };
+const COMMANDS = { start, stop, status, list, "model-subagent": modelSubagent, "internal-classifier": modelInternalClassifier, help: () => console.log(HELP) };
 
 const [, , cmd, ...rest] = process.argv;
 

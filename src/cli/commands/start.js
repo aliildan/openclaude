@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
+import { writeFile, mkdir, stat, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { ensureDaemonRunning } from "../daemon.js";
-import { loadConfig } from "../../router/config.js";
+import { loadConfig, interpolateEnv, parseModelTarget, paths } from "../../router/config.js";
 import { listLocalOllamaModels } from "../ollama.js";
 import { SENTINEL_AUTH_TOKEN, readOauthAccessToken } from "../../router/auth.js";
-import { interpolateEnv } from "../../router/config.js";
+import { resolveSubagentModel } from "./model-subagent.js";
+import { resolveInternalClassifierModel } from "./model-internal-classifier.js";
 
 // Friendly natural ID for the env-var alias slots (Custom/Sonnet/Opus). Claude
 // Code does not validate these strings, so the readable form survives intact
@@ -15,6 +19,12 @@ function ollamaPickerId(modelName) {
 export async function start(args) {
   const status = await ensureDaemonRunning();
   const cfg = await loadConfig();
+
+  // Clear stale active-file state from previously crashed sessions before
+  // computing this session's values. `oc stop` also unlinks these, but a
+  // crashed `oc start` leaves them behind — clean here too.
+  await unlink(join(paths.dir, "subagent-active")).catch(() => {});
+  await unlink(join(paths.dir, "internal-classifier-active")).catch(() => {});
 
   const ollamaBase = cfg.providers?.["ollama-local"]?.baseUrl || "http://127.0.0.1:11434";
   const ollamaModels = await listLocalOllamaModels(ollamaBase);
@@ -37,10 +47,11 @@ export async function start(args) {
     a !== "--bridge=conservative"
   );
 
-  // ⚠️ NEVER bind ANTHROPIC_DEFAULT_HAIKU_MODEL — it's used for Claude Code's
-  // safety classifier and other background tasks. Hijacking it makes Bash and
-  // other tools fail with "default is temporarily unavailable".
-  // Sonnet and Opus aliases ARE safe to hijack.
+  // ⚠️ ANTHROPIC_DEFAULT_HAIKU_MODEL is used for Claude Code's safety classifier
+  // and other background tasks. The default is Anthropic Haiku (via subscription),
+  // but users can override it with `oc internal-classifier` to route those requests
+  // to a local/cloud Ollama model instead — useful when Anthropic subscription
+  // limits are exhausted or when running fully offline.
   //
   // Conservative (default): only the singular Custom slot → 1 Ollama model in picker.
   // Aggressive (--bridge=aggressive): also Sonnet + Opus → 3 Ollama models in picker.
@@ -96,6 +107,33 @@ export async function start(args) {
   }
 
   console.error(`[openclaude] mode: ${aggressive ? "aggressive" : "conservative (safe)"} · discovery: ${enableDiscovery ? "ON (all Ollama models in /model)" : "OFF (alias slots only)"}`);
+
+  // Subagent model: if configured, validate and set CLAUDE_CODE_SUBAGENT_MODEL.
+  // This env var is read once when claude starts, so the choice only takes
+  // effect at start time — exactly like the other env-var bindings above.
+  const subResolved = resolveSubagentModel(cfg.subagentModel, ollamaModels, cfg);
+  if (subResolved.warning) {
+    console.error(`[openclaude] WARNING: ${subResolved.warning}`);
+  }
+  if (subResolved.envValue) {
+    env.CLAUDE_CODE_SUBAGENT_MODEL = subResolved.envValue;
+  }
+  const subagentLabel = env.CLAUDE_CODE_SUBAGENT_MODEL ?? "default (Anthropic)";
+  console.error(`[openclaude] subagent model: ${subagentLabel}`);
+  await writeFile(join(paths.dir, "subagent-active"), env.CLAUDE_CODE_SUBAGENT_MODEL || "");
+
+  // Internal-classifier model: override Haiku (used for safety classification
+  // and other background tasks) with an Ollama model when configured.
+  const classifierResolved = resolveInternalClassifierModel(cfg.internalClassifierModel, ollamaModels, cfg);
+  if (classifierResolved.warning) {
+    console.error(`[openclaude] WARNING: ${classifierResolved.warning}`);
+  }
+  if (classifierResolved.envValue) {
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = classifierResolved.envValue;
+  }
+  const classifierLabel = env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? "default (Anthropic Haiku)";
+  console.error(`[openclaude] internal-classifier model: ${classifierLabel}`);
+  await writeFile(join(paths.dir, "internal-classifier-active"), env.ANTHROPIC_DEFAULT_HAIKU_MODEL || "");
   if (enableDiscovery) {
     console.error(`[openclaude] note: ANTHROPIC_AUTH_TOKEN is set to a sentinel; Remote Control / /schedule / claude.ai MCP connectors / notification preferences will be disabled this session (subscription inference still works).`);
   }
@@ -113,6 +151,9 @@ export async function start(args) {
   }
   console.error(`[openclaude] launching: claude ${passthroughArgs.join(" ")}`);
 
+  await ensureModelSubagentCommand();
+  await ensureModelInternalClassifierCommand();
+
   const child = spawn("claude", passthroughArgs, { stdio: "inherit", env });
   child.on("exit", (code) => process.exit(code ?? 0));
   child.on("error", (err) => {
@@ -120,6 +161,32 @@ export async function start(args) {
     console.error(`[openclaude] is Claude Code installed and on your PATH?`);
     process.exit(127);
   });
+}
+
+// Command files that make /model-subagent and /model-internal-classifier available
+// inside Claude Code sessions. Written to ~/.claude/commands/ once per user so
+// they work in every project. Never rewritten — users can edit or delete freely.
+const SUBAGENT_COMMAND = "Run `oc model-subagent` in bash and show the full output to the user. Do not ask any questions.";
+const CLASSIFIER_COMMAND = "Run `oc internal-classifier` in bash and show the full output to the user. Do not ask any questions.";
+
+async function ensureCommandFileIfMissing(name, content) {
+  const dir = join(homedir(), ".claude", "commands");
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, name);
+  try {
+    await stat(path);
+    return; // exists — never touch
+  } catch {
+    await writeFile(path, content);
+  }
+}
+
+async function ensureModelSubagentCommand() {
+  await ensureCommandFileIfMissing("model-subagent.md", SUBAGENT_COMMAND);
+}
+
+async function ensureModelInternalClassifierCommand() {
+  await ensureCommandFileIfMissing("model-internal-classifier.md", CLASSIFIER_COMMAND);
 }
 
 function describe(m) {
