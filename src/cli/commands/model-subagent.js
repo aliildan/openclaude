@@ -1,8 +1,8 @@
-import { createModelSelector } from "./model-selector.js";
+import { createModelSelector, SUBAGENT_ACTIVE_FILENAME } from "./model-selector.js";
 
 const selector = createModelSelector({
   configKey: "subagentModel",
-  activeFileName: "subagent-active",
+  activeFileName: SUBAGENT_ACTIVE_FILENAME,
   cliName: "model-subagent",
   defaultLabel: "default (Anthropic)",
   defaultMenuLabel: "default (Anthropic) — unset override",

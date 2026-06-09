@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
 import { writeFile, mkdir, stat, unlink } from "node:fs/promises";
+import { unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ensureDaemonRunning } from "../daemon.js";
-import { loadConfig, interpolateEnv, parseModelTarget, paths } from "../../router/config.js";
+import { loadConfig, interpolateEnv } from "../../router/config.js";
 import { listLocalOllamaModels } from "../ollama.js";
 import { SENTINEL_AUTH_TOKEN, readOauthAccessToken } from "../../router/auth.js";
 import { resolveSubagentModel } from "./model-subagent.js";
 import { resolveInternalClassifierModel } from "./model-internal-classifier.js";
+import { SUBAGENT_ACTIVE_FILE, CLASSIFIER_ACTIVE_FILE } from "./model-selector.js";
 
 // Friendly natural ID for the env-var alias slots (Custom/Sonnet/Opus). Claude
 // Code does not validate these strings, so the readable form survives intact
@@ -23,8 +25,8 @@ export async function start(args) {
   // Clear stale active-file state from previously crashed sessions before
   // computing this session's values. `oc stop` also unlinks these, but a
   // crashed `oc start` leaves them behind — clean here too.
-  await unlink(join(paths.dir, "subagent-active")).catch(() => {});
-  await unlink(join(paths.dir, "internal-classifier-active")).catch(() => {});
+  await unlink(SUBAGENT_ACTIVE_FILE).catch(() => {});
+  await unlink(CLASSIFIER_ACTIVE_FILE).catch(() => {});
 
   const ollamaBase = cfg.providers?.["ollama-local"]?.baseUrl || "http://127.0.0.1:11434";
   const ollamaModels = await listLocalOllamaModels(ollamaBase);
@@ -120,7 +122,7 @@ export async function start(args) {
   }
   const subagentLabel = env.CLAUDE_CODE_SUBAGENT_MODEL ?? "default (Anthropic)";
   console.error(`[openclaude] subagent model: ${subagentLabel}`);
-  await writeFile(join(paths.dir, "subagent-active"), env.CLAUDE_CODE_SUBAGENT_MODEL || "");
+  await writeFile(SUBAGENT_ACTIVE_FILE, env.CLAUDE_CODE_SUBAGENT_MODEL || "");
 
   // Internal-classifier model: override Haiku (used for safety classification
   // and other background tasks) with an Ollama model when configured.
@@ -133,7 +135,7 @@ export async function start(args) {
   }
   const classifierLabel = env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? "default (Anthropic Haiku)";
   console.error(`[openclaude] internal-classifier model: ${classifierLabel}`);
-  await writeFile(join(paths.dir, "internal-classifier-active"), env.ANTHROPIC_DEFAULT_HAIKU_MODEL || "");
+  await writeFile(CLASSIFIER_ACTIVE_FILE, env.ANTHROPIC_DEFAULT_HAIKU_MODEL || "");
   if (enableDiscovery) {
     console.error(`[openclaude] note: ANTHROPIC_AUTH_TOKEN is set to a sentinel; Remote Control / /schedule / claude.ai MCP connectors / notification preferences will be disabled this session (subscription inference still works).`);
   }
@@ -155,7 +157,14 @@ export async function start(args) {
   await ensureModelInternalClassifierCommand();
 
   const child = spawn("claude", passthroughArgs, { stdio: "inherit", env });
-  child.on("exit", (code) => process.exit(code ?? 0));
+  child.on("exit", (code) => {
+    // Clear this session's active-file state on a normal Claude exit so `oc status`
+    // doesn't report a stale "active in session" model. Synchronous unlink: the
+    // following process.exit() would otherwise terminate before async I/O flushed.
+    try { unlinkSync(SUBAGENT_ACTIVE_FILE); } catch {}
+    try { unlinkSync(CLASSIFIER_ACTIVE_FILE); } catch {}
+    process.exit(code ?? 0);
+  });
   child.on("error", (err) => {
     console.error(`[openclaude] failed to exec "claude": ${err.message}`);
     console.error(`[openclaude] is Claude Code installed and on your PATH?`);

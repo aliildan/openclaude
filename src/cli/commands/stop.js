@@ -1,10 +1,6 @@
 import { unlink } from "node:fs/promises";
-import { join } from "node:path";
 import { stopDaemon } from "../daemon.js";
-import { paths } from "../../router/config.js";
-
-const SUBAGENT_ACTIVE_FILE = join(paths.dir, "subagent-active");
-const CLASSIFIER_ACTIVE_FILE = join(paths.dir, "internal-classifier-active");
+import { SUBAGENT_ACTIVE_FILE, CLASSIFIER_ACTIVE_FILE } from "./model-selector.js";
 
 export async function stop() {
   const result = await stopDaemon();

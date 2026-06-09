@@ -15,6 +15,14 @@ export const ANTHROPIC_MODELS = [
   { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (uses subscription)" },
 ];
 
+// Transient per-session state files recording the model actually wired into the
+// last-launched `claude` process. Defined once here so start/stop/status and the
+// selectors all agree on the names (and don't drift apart as strings).
+export const SUBAGENT_ACTIVE_FILENAME = "subagent-active";
+export const CLASSIFIER_ACTIVE_FILENAME = "internal-classifier-active";
+export const SUBAGENT_ACTIVE_FILE = join(paths.dir, SUBAGENT_ACTIVE_FILENAME);
+export const CLASSIFIER_ACTIVE_FILE = join(paths.dir, CLASSIFIER_ACTIVE_FILENAME);
+
 export function createModelSelector({
   configKey,
   activeFileName,
@@ -86,7 +94,8 @@ export function createModelSelector({
       return { cfg: next, label: defaultLabel };
     }
     const updated = { ...cfg, [configKey]: chosen.id };
-    return { cfg: updated, label: chosen.id };
+    // Confirmation shows the friendly menu label; the active file still stores the id.
+    return { cfg: updated, label: chosen.label };
   }
 
   async function showStatus(configured) {

@@ -203,6 +203,9 @@ export async function createRouter() {
       const url = new URL(req.url, "http://localhost");
       log(`<- ${req.method} ${url.pathname} (ua=${(req.headers["user-agent"] || "").slice(0, 40)})`);
       if (req.method === "POST" && url.pathname === "/v1/messages") return await handleMessages(req, res, cfg);
+      // count_tokens runs the same provider routing as /v1/messages and is intended
+      // for the anthropic-passthrough path. A model that resolves to a non-Anthropic
+      // provider (e.g. ollama-local) will forward to a backend with no such endpoint.
       if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") return await handleMessages(req, res, cfg, "/v1/messages/count_tokens");
       if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) return await handleModels(req, res, cfg);
       if (req.method === "GET" && url.pathname === "/openclaude/status") {

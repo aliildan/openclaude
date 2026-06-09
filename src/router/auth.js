@@ -63,7 +63,8 @@ export async function readKeychainToken() {
 }
 
 export async function readOauthAccessToken() {
-  // 1. Explicit env var override.
+  // 1. Explicit env var override. Used verbatim — intentionally NOT checked for
+  //    expiry, since an operator setting this is overriding our token sourcing.
   const envToken = process.env.OPENCLAUDE_OAUTH_TOKEN;
   if (envToken) return envToken;
 

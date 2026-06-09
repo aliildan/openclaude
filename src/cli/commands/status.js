@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { getDaemonStatus, daemonPaths } from "../daemon.js";
-import { loadConfig, paths } from "../../router/config.js";
+import { loadConfig } from "../../router/config.js";
 import { SUBAGENT_DEFAULT_LABEL } from "./model-subagent.js";
 import { CLASSIFIER_DEFAULT_LABEL } from "./model-internal-classifier.js";
+import { SUBAGENT_ACTIVE_FILE, CLASSIFIER_ACTIVE_FILE } from "./model-selector.js";
 
-const SUBAGENT_ACTIVE_FILE = join(paths.dir, "subagent-active");
-const CLASSIFIER_ACTIVE_FILE = join(paths.dir, "internal-classifier-active");
+// Width of the left-hand label column so "subagent:" and "classifier:" align.
+const LABEL_W = 12;
+const label = (s) => `${s}:`.padEnd(LABEL_W);
+const indent = " ".repeat(LABEL_W);
 
 export async function status() {
   const d = await getDaemonStatus();
@@ -24,38 +26,38 @@ export async function status() {
 
   // Subagent model: show configured vs active-in-session
   const configured = cfg.subagentModel ?? SUBAGENT_DEFAULT_LABEL;
-  lines.push(`subagent:  ${configured} (configured)`);
+  lines.push(`${label("subagent")}${configured} (configured)`);
   if (d.running) {
     try {
       const active = (await readFile(SUBAGENT_ACTIVE_FILE, "utf8")).trim() || null;
       const activeLabel = active ?? SUBAGENT_DEFAULT_LABEL;
-      lines.push(`subagent:  ${activeLabel} (active in session)`);
+      lines.push(`${label("subagent")}${activeLabel} (active in session)`);
       if ((cfg.subagentModel ?? "") !== (active ?? "")) {
-        lines.push(`           ↑ pending change — restart oc to apply`);
+        lines.push(`${indent}↑ pending change — restart oc to apply`);
       }
     } catch {
-      lines.push(`subagent:  (active session has no subagent state file)`);
+      lines.push(`${label("subagent")}(active session has no subagent state file)`);
     }
   } else {
-    lines.push(`subagent:  (no active session)`);
+    lines.push(`${label("subagent")}(no active session)`);
   }
 
   // Internal-classifier model: show configured vs active-in-session
   const classifierConfigured = cfg.internalClassifierModel ?? CLASSIFIER_DEFAULT_LABEL;
-  lines.push(`classifier: ${classifierConfigured} (configured)`);
+  lines.push(`${label("classifier")}${classifierConfigured} (configured)`);
   if (d.running) {
     try {
       const classifierActive = (await readFile(CLASSIFIER_ACTIVE_FILE, "utf8")).trim() || null;
       const classifierActiveLabel = classifierActive ?? CLASSIFIER_DEFAULT_LABEL;
-      lines.push(`classifier: ${classifierActiveLabel} (active in session)`);
+      lines.push(`${label("classifier")}${classifierActiveLabel} (active in session)`);
       if ((cfg.internalClassifierModel ?? "") !== (classifierActive ?? "")) {
-        lines.push(`           ↑ pending change — restart oc to apply`);
+        lines.push(`${indent}↑ pending change — restart oc to apply`);
       }
     } catch {
-      lines.push(`classifier: (active session has no classifier state file)`);
+      lines.push(`${label("classifier")}(active session has no classifier state file)`);
     }
   } else {
-    lines.push(`classifier: (no active session)`);
+    lines.push(`${label("classifier")}(no active session)`);
   }
 
   console.log(lines.join("\n"));

@@ -1,8 +1,8 @@
-import { createModelSelector } from "./model-selector.js";
+import { createModelSelector, CLASSIFIER_ACTIVE_FILENAME } from "./model-selector.js";
 
 const selector = createModelSelector({
   configKey: "internalClassifierModel",
-  activeFileName: "internal-classifier-active",
+  activeFileName: CLASSIFIER_ACTIVE_FILENAME,
   cliName: "internal-classifier",
   defaultLabel: "default (Anthropic Haiku)",
   defaultMenuLabel: "default (Anthropic Haiku — safety classifier & internal tasks)",

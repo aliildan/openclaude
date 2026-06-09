@@ -111,6 +111,25 @@ test("orphan content_block_stop is dropped (was the smoking gun for kimi-k2.6)",
   assert.ok(out.includes('"type":"message_stop"'), "message_stop must still be emitted");
 });
 
+test("chunk producing only dropped events still makes progress (hang regression)", { timeout: 5000 }, async () => {
+  // The first chunk contains ONLY an event the fixer drops (orphan content_block_stop),
+  // so it yields zero output. pull() must keep reading until it has something to
+  // enqueue — the old code returned after a no-output chunk and the consumer hung
+  // forever. The timeout turns a regression into a failure instead of a hang.
+  const input = [
+    evt("content_block_stop", { type: "content_block_stop", index: 0 }), // orphan → dropped, no output
+    evt("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) +
+      evt("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }) +
+      evt("content_block_stop", { type: "content_block_stop", index: 0 }) +
+      evt("message_stop", { type: "message_stop" }),
+  ];
+  const out = await collect(fixupAnthropicStream(streamFromChunks(input)));
+  const stopCount = out.split('"type":"content_block_stop"').length - 1;
+  assert.equal(stopCount, 1, "orphan stop dropped; only the well-formed block's stop survives");
+  assert.ok(out.includes('"text":"ok"'), "the real event after a dropped-only chunk is delivered");
+  assert.ok(out.includes('"type":"message_stop"'), "stream completes without hanging");
+});
+
 test("message_stop with open blocks auto-closes them first", async () => {
   const input = [
     evt("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),

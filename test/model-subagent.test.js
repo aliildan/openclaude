@@ -52,25 +52,33 @@ test("resolveSubagentModel: empty string returns null envValue", () => {
 });
 
 // --- Config round-trip tests ---
+//
+// config.js freezes its target dir from OPENCLAUDE_HOME at module-load time, so
+// every round-trip import MUST be cache-busted ("?" + Date.now()) to pick up the
+// per-test home — otherwise the cached module writes to the real ~/.openclaude.
+
+function restoreHome(orig) {
+  if (orig === undefined) delete process.env.OPENCLAUDE_HOME;
+  else process.env.OPENCLAUDE_HOME = orig;
+}
 
 test("saveConfig + loadConfig round-trip preserves subagentModel", async () => {
   const home = join(tmpdir(), `oc-test-subagent-${Date.now()}`);
   await mkdir(home, { recursive: true });
+  const origHome = process.env.OPENCLAUDE_HOME;
   try {
-    const origHome = process.env.OPENCLAUDE_HOME;
     process.env.OPENCLAUDE_HOME = home;
 
-    // Re-import config module to pick up the new OPENCLAUDE_HOME
-    const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js");
+    // Cache-busted re-import so config.js re-reads the new OPENCLAUDE_HOME.
+    const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js?" + Date.now());
     const cfg = await freshLoad();
     cfg.subagentModel = "ollama-local:qwen2.5-coder:7b";
     await freshSave(cfg);
 
     const reloaded = await freshLoad();
     assert.equal(reloaded.subagentModel, "ollama-local:qwen2.5-coder:7b");
-
-    process.env.OPENCLAUDE_HOME = origHome;
   } finally {
+    restoreHome(origHome);
     await rm(home, { recursive: true, force: true });
   }
 });
@@ -78,11 +86,11 @@ test("saveConfig + loadConfig round-trip preserves subagentModel", async () => {
 test("removing subagentModel key from config", async () => {
   const home = join(tmpdir(), `oc-test-subagent-del-${Date.now()}`);
   await mkdir(home, { recursive: true });
+  const origHome = process.env.OPENCLAUDE_HOME;
   try {
-    const origHome = process.env.OPENCLAUDE_HOME;
     process.env.OPENCLAUDE_HOME = home;
 
-    const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js");
+    const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js?" + Date.now());
 
     // Set a subagentModel
     let cfg = await freshLoad();
@@ -100,9 +108,8 @@ test("removing subagentModel key from config", async () => {
     // Verify it's gone
     const reloaded = await freshLoad();
     assert.equal(reloaded.subagentModel, undefined);
-
-    process.env.OPENCLAUDE_HOME = origHome;
   } finally {
+    restoreHome(origHome);
     await rm(home, { recursive: true, force: true });
   }
 });

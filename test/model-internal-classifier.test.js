@@ -52,12 +52,21 @@ test("resolveInternalClassifierModel: empty string returns null envValue", () =>
 });
 
 // --- Config round-trip tests ---
+//
+// config.js freezes its target dir from OPENCLAUDE_HOME at module-load time, so
+// every round-trip import MUST be cache-busted ("?" + Date.now()) to pick up the
+// per-test home — otherwise the cached module writes to the real ~/.openclaude.
+
+function restoreHome(orig) {
+  if (orig === undefined) delete process.env.OPENCLAUDE_HOME;
+  else process.env.OPENCLAUDE_HOME = orig;
+}
 
 test("saveConfig + loadConfig round-trip preserves internalClassifierModel", async () => {
   const home = join(tmpdir(), `oc-test-classifier-${Date.now()}`);
   await mkdir(home, { recursive: true });
+  const origHome = process.env.OPENCLAUDE_HOME;
   try {
-    const origHome = process.env.OPENCLAUDE_HOME;
     process.env.OPENCLAUDE_HOME = home;
 
     const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js?" + Date.now());
@@ -67,9 +76,8 @@ test("saveConfig + loadConfig round-trip preserves internalClassifierModel", asy
 
     const reloaded = await freshLoad();
     assert.equal(reloaded.internalClassifierModel, "ollama-local:qwen2.5-coder:7b");
-
-    process.env.OPENCLAUDE_HOME = origHome;
   } finally {
+    restoreHome(origHome);
     await rm(home, { recursive: true, force: true });
   }
 });
@@ -77,8 +85,8 @@ test("saveConfig + loadConfig round-trip preserves internalClassifierModel", asy
 test("removing internalClassifierModel key from config", async () => {
   const home = join(tmpdir(), `oc-test-classifier-del-${Date.now()}`);
   await mkdir(home, { recursive: true });
+  const origHome = process.env.OPENCLAUDE_HOME;
   try {
-    const origHome = process.env.OPENCLAUDE_HOME;
     process.env.OPENCLAUDE_HOME = home;
 
     const { loadConfig: freshLoad, saveConfig: freshSave } = await import("../src/router/config.js?" + Date.now());
@@ -95,9 +103,8 @@ test("removing internalClassifierModel key from config", async () => {
 
     const reloaded = await freshLoad();
     assert.equal(reloaded.internalClassifierModel, undefined);
-
-    process.env.OPENCLAUDE_HOME = origHome;
   } finally {
+    restoreHome(origHome);
     await rm(home, { recursive: true, force: true });
   }
 });
