@@ -38,28 +38,41 @@ export function fixupAnthropicStream(upstream) {
 
   return new ReadableStream({
     async pull(controller) {
-      const { value, done } = await reader.read();
-      if (done) {
-        if (buffer) controller.enqueue(ENCODER.encode(buffer));
-        controller.close();
-        return;
-      }
-      const chunkText = decoder.decode(value, DECODER_OPTS);
-      debugDump("upstream-chunk", chunkText);
-      buffer += chunkText;
-
-      let cursor = 0;
+      // ReadStream's pull contract: after pull() returns, the stream won't call
+      // pull() again until the consumer reads enqueued data. If we process a
+      // chunk but produce no output (e.g. incomplete SSE event buffered), we
+      // must keep reading until we have something to enqueue — otherwise the
+      // consumer hangs forever waiting for data that never comes.
       while (true) {
-        const end = buffer.indexOf("\n\n", cursor);
-        if (end === -1) break;
-        const rawEvent = buffer.slice(cursor, end);
-        const out = processEvent(rawEvent, openBlocks);
-        if (out !== rawEvent) debugDump("rewrote-event", `IN:\n${rawEvent}\n---OUT:\n${out}`);
-        // Empty output means "drop this event" (e.g. orphan content_block_stop).
-        if (out !== "") controller.enqueue(ENCODER.encode(out + "\n\n"));
-        cursor = end + 2;
+        const { value, done } = await reader.read();
+        if (done) {
+          if (buffer) controller.enqueue(ENCODER.encode(buffer));
+          controller.close();
+          return;
+        }
+        const chunkText = decoder.decode(value, DECODER_OPTS);
+        debugDump("upstream-chunk", chunkText);
+        buffer += chunkText;
+
+        let cursor = 0;
+        let enqueued = 0;
+        while (true) {
+          const end = buffer.indexOf("\n\n", cursor);
+          if (end === -1) break;
+          const rawEvent = buffer.slice(cursor, end);
+          const out = processEvent(rawEvent, openBlocks);
+          if (out !== rawEvent) debugDump("rewrote-event", `IN:\n${rawEvent}\n---OUT:\n${out}`);
+          // Empty output means "drop this event" (e.g. orphan content_block_stop).
+          if (out !== "") {
+            controller.enqueue(ENCODER.encode(out + "\n\n"));
+            enqueued++;
+          }
+          cursor = end + 2;
+        }
+        buffer = buffer.slice(cursor);
+        if (enqueued > 0) return; // produced output — let the stream call pull() again
+        // No output yet (incomplete event in buffer) — loop to read more
       }
-      buffer = buffer.slice(cursor);
     },
     cancel(reason) { return reader.cancel(reason); },
   });

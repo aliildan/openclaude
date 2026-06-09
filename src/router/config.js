@@ -44,6 +44,11 @@ export async function loadConfig() {
   return { ...DEFAULT_CONFIG, ...cfg, providers: { ...DEFAULT_CONFIG.providers, ...(cfg.providers ?? {}) } };
 }
 
+export async function saveConfig(cfg) {
+  await ensureConfig();
+  await writeFile(DEFAULT_FILE, JSON.stringify(cfg, null, 2) + "\n");
+}
+
 export function interpolateEnv(value) {
   if (typeof value !== "string") return value;
   return value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? "");
