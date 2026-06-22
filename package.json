@@ -1,6 +1,6 @@
 {
   "name": "@aliildan/openclaude",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tiny multi-provider router for Claude Code: mix Anthropic Claude (subscription auth), Ollama Cloud, and local Ollama with per-duty model assignments.",
   "type": "module",
   "bin": {
@@ -10,7 +10,12 @@
   "engines": {
     "node": ">=20"
   },
-  "files": ["bin", "src", "README.md", "openclaude.png"],
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "openclaude.png"
+  ],
   "license": "MIT",
   "author": "Ali Ildan <ali.ildan@gmail.com>",
   "keywords": [
