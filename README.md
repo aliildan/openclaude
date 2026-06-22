@@ -13,6 +13,8 @@ A tiny multi-provider router for **Claude Code** that lets you use **Ollama** (l
 | `oc list`                     | List installed Ollama models with paste-ready /model lines. |
 | `oc model-subagent`           | Show/select subagent model for Claude Code.                 |
 | `oc model-subagent <n>`       | Set subagent model by number (takes effect on next start).  |
+| `oc internal-classifier`      | Show/select model for Claude Code's safety classifier.      |
+| `oc internal-classifier <n>`  | Set classifier model by number (default: Anthropic Haiku).  |
 
 ![openclaude /model picker screenshot](openclaude.png)
 
@@ -69,40 +71,19 @@ ollama --version    # optional, only if you want Ollama models
 
 ## Install
 
-The recommended way works on every platform — clone, then `npm link` to register `openclaude` / `oc` globally:
+Install globally from npm — this registers the `oc` and `openclaude` commands on your `PATH`:
 
 ```bash
-git clone <this-repo> openclaude
-cd openclaude
-npm link        # registers `openclaude` and `oc` on your PATH via npm's shim
+npm install -g @aliildan/openclaude
 ```
 
-`npm link` works because `package.json` declares both bin names. On Windows it produces `.cmd` shims; on Unix it symlinks into your global `bin` directory. Either way, `oc start` works from any cwd.
+The package is scoped (`@aliildan/openclaude`), but the commands stay `oc` / `openclaude`, so `oc start` works from any cwd. Works the same on Linux, macOS, and Windows.
 
-### Platform-specific notes
-
-**Linux** — if you prefer a manual symlink over `npm link`:
+To upgrade later:
 
 ```bash
-git clone <this-repo> ~/.openclaude/repo
-mkdir -p ~/.local/bin
-ln -s ~/.openclaude/repo/bin/openclaude ~/.local/bin/oc
-# make sure ~/.local/bin is on $PATH
+npm install -g @aliildan/openclaude@latest
 ```
-
-**macOS** — `npm link` is the path of least resistance. Manual install also works, but the symlink destination differs by setup:
-
-```bash
-git clone <this-repo> ~/.openclaude/repo
-# Apple Silicon (Homebrew):
-ln -s ~/.openclaude/repo/bin/openclaude /opt/homebrew/bin/oc
-# Intel Macs:
-ln -s ~/.openclaude/repo/bin/openclaude /usr/local/bin/oc
-```
-
-If you installed Node via `nvm`, `npm link` will land the shim in the active nvm-managed `bin` directory automatically.
-
-**Windows** — use `npm link` from PowerShell or `cmd.exe`. Manual symlinks need admin privileges or Developer Mode, so they're not recommended. The credentials file path is `%USERPROFILE%\.claude\.credentials.json` and the config lives at `%USERPROFILE%\.openclaude\config.json`. Everything else is path-agnostic.
 
 > The daemon writes its pid/log/config under `~/.openclaude/` (or `%USERPROFILE%\.openclaude\` on Windows). Override with `OPENCLAUDE_HOME=/some/path` if you need a different location.
 

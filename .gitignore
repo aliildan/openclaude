@@ -3,3 +3,9 @@ node_modules/
 .openclaude/
 *.log
 .DS_Store
+
+# Editors / IDEs
+.idea/
+*.iml
+.vscode/
+*.swp
