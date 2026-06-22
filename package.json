@@ -1,5 +1,5 @@
 {
-  "name": "openclaude",
+  "name": "@aliildan/openclaude",
   "version": "0.1.0",
   "description": "Tiny multi-provider router for Claude Code: mix Anthropic Claude (subscription auth), Ollama Cloud, and local Ollama with per-duty model assignments.",
   "type": "module",
@@ -10,9 +10,32 @@
   "engines": {
     "node": ">=20"
   },
-  "files": ["bin", "src", "README.md"],
+  "files": ["bin", "src", "README.md", "openclaude.png"],
   "license": "MIT",
+  "author": "Ali Ildan <ali.ildan@gmail.com>",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ollama",
+    "anthropic",
+    "llm",
+    "router",
+    "proxy",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aliildan/openclaude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aliildan/openclaude/issues"
+  },
+  "homepage": "https://github.com/aliildan/openclaude#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "test": "node --test test/router-routing.test.js test/router-e2e.test.js test/router-stream-error.test.js test/stream-fixup.test.js test/capabilities.test.js test/sanitize.test.js test/model-subagent.test.js test/model-internal-classifier.test.js test/auth.test.js"
+    "test": "node --test test/router-routing.test.js test/router-e2e.test.js test/router-stream-error.test.js test/stream-fixup.test.js test/capabilities.test.js test/sanitize.test.js test/model-subagent.test.js test/model-internal-classifier.test.js test/auth.test.js",
+    "prepublishOnly": "npm test"
   }
 }
