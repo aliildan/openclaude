@@ -46,6 +46,15 @@ async function readJsonBody(req) {
 }
 
 function sendJson(res, status, payload) {
+  // Once any byte has been written the status line + headers are already on the
+  // wire, so setHeader()/statusCode would throw ERR_HTTP_HEADERS_SENT. That
+  // throw, raised from inside an error handler, was crashing the whole daemon.
+  // If we can no longer send a clean JSON error, abort the response instead so
+  // the client sees a broken stream and retries.
+  if (res.headersSent || res.writableEnded) {
+    if (!res.writableEnded) res.destroy();
+    return;
+  }
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(payload));
@@ -143,11 +152,23 @@ async function handleMessages(req, res, cfg, upstreamPath = "/v1/messages") {
     }
   } catch (err) {
     // If the abort fired, the AbortError landed here — that's expected, not an
-    // upstream failure. Anything else propagates to the outer error handler.
+    // upstream failure.
     if (controller.signal.aborted) {
       log("client disconnected; upstream fetch aborted");
       return;
     }
+    // If we've already begun streaming the upstream body to the client, the
+    // response headers are on the wire and we can't switch to a JSON error.
+    // This is the common cross-provider failure (e.g. the upstream stream
+    // terminates with UND_ERR_BODY_TIMEOUT after the subagent hands back to the
+    // main agent). End the partial response here instead of re-throwing into the
+    // outer handler, which would try to set headers and crash the daemon.
+    if (res.headersSent) {
+      log(`upstream stream failed mid-response: ${err.message}`);
+      if (!res.writableEnded) res.destroy();
+      return;
+    }
+    // Nothing sent yet — let the outer handler emit a clean JSON error.
     throw err;
   } finally {
     req.off("close", onClientClose);
@@ -220,8 +241,16 @@ export async function createRouter() {
       sendJson(res, 404, { type: "error", error: { type: "not_found_error", message: `No route for ${req.method} ${url.pathname}` } });
     } catch (err) {
       log("error:", err);
-      const status = err.httpStatus ?? 500;
-      sendJson(res, status, { type: "error", error: { type: "router_error", message: err.message } });
+      // sendJson() is a no-op when headers were already sent, and is wrapped so
+      // that even an unexpected failure here can never reject the request
+      // handler's promise and take the daemon down with it.
+      try {
+        const status = err.httpStatus ?? 500;
+        sendJson(res, status, { type: "error", error: { type: "router_error", message: err.message } });
+      } catch (sendErr) {
+        log("failed to send error response:", sendErr.message);
+        if (!res.writableEnded) res.destroy();
+      }
     }
   });
 
@@ -229,6 +258,17 @@ export async function createRouter() {
 }
 
 export async function startRouter(port) {
+  // The router runs detached with no supervisor to restart it, so a single
+  // unhandled error must not be fatal — otherwise every later request from
+  // Claude Code fails with a connection error until the user restarts. Log and
+  // keep serving instead of letting Node exit on an unhandled rejection.
+  process.on("unhandledRejection", (reason) => {
+    log("unhandledRejection:", reason instanceof Error ? reason.stack : reason);
+  });
+  process.on("uncaughtException", (err) => {
+    log("uncaughtException:", err?.stack ?? err);
+  });
+
   const { server, getConfig } = await createRouter();
   const listenPort = port ?? getConfig().port ?? 11436;
   await new Promise((resolve, reject) => {
