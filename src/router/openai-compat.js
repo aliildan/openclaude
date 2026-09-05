@@ -141,6 +141,45 @@ function convertMessages(messages) {
   }
   return out;
 }
+// OpenAI requires every role:"tool" message to be immediately preceded by an
+// assistant message whose tool_calls carry a matching id. After a /compact or
+// a truncated session replay, history can start with (or contain) a dangling
+// tool result, which makes OpenAI-compatible upstreams reject the whole request
+// with 400. Synthesize a minimal placeholder assistant.tool_calls entry so the
+// sequence is valid. Well-formed histories pass through byte-for-byte.
+function repairToolMessageSequence(messages) {
+  const out = [];
+  let declaredCallIds = null; // ids introduced by the most recent assistant msg
+  let placeholder = null;    // synthetic assistant currently being filled
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      declaredCallIds = new Set((msg.tool_calls ?? []).map((tc) => tc.id));
+      placeholder = null;
+      out.push(msg);
+    } else if (msg.role === "tool") {
+      if (!declaredCallIds || !declaredCallIds.has(msg.tool_call_id)) {
+        if (!placeholder || out[out.length - 1] !== placeholder) {
+          placeholder = { role: "assistant", content: null, tool_calls: [] };
+          out.push(placeholder);
+          declaredCallIds = new Set();
+        }
+        placeholder.tool_calls.push({
+          id: msg.tool_call_id,
+          type: "function",
+          function: { name: "unknown", arguments: "{}" },
+        });
+        declaredCallIds.add(msg.tool_call_id);
+      }
+      out.push(msg);
+    } else {
+      // system / user break the tool-call adjacency chain
+      declaredCallIds = null;
+      placeholder = null;
+      out.push(msg);
+    }
+  }
+  return out;
+}
 
 function convertSystem(system) {
   if (typeof system === "string") return system;
@@ -186,7 +225,7 @@ export function anthropicToOpenAIRequest(body, modelId, provider = {}) {
   const messages = [];
   const system = convertSystem(body?.system);
   if (system) messages.push({ role: "system", content: system });
-  messages.push(...convertMessages(body?.messages));
+  messages.push(...repairToolMessageSequence(convertMessages(body?.messages)));
 
   const out = {
     model: modelId,
@@ -305,6 +344,15 @@ function getDataPayload(rawEvent) {
   }
   return data.length ? data.join("\n") : null;
 }
+// Some OpenAI-compatible gateways signal a failure *inside* an SSE stream
+// (HTTP 200, then data: {"error": {...}}) instead of as an HTTP status. Without
+// handling it, the client receives a successful but empty message.
+function extractChunkError(chunk) {
+  const e = chunk?.error;
+  if (!e) return null;
+  if (typeof e === "string") return e;
+  return e.message ?? e.type ?? "Upstream returned an in-stream error";
+}
 
 function appendFragment(current, fragment) {
   if (typeof fragment !== "string" || fragment.length === 0) return current;
@@ -334,6 +382,7 @@ export function openAIStreamToAnthropic(upstream, { model = "unknown" } = {}) {
       let finishReason = null;
       let usage = null;
       let toolOrder = 0;
+      let streamError = null;
       const tools = new Map();
 
       const emit = (text) => controller.enqueue(encoder.encode(text));
@@ -394,6 +443,11 @@ export function openAIStreamToAnthropic(upstream, { model = "unknown" } = {}) {
 
       const processChunk = (chunk) => {
         ensureMessageStart(chunk);
+        const chunkError = extractChunkError(chunk);
+        if (chunkError) {
+          streamError = String(chunkError);
+          return;
+        }
         if (chunk?.usage) usage = chunk.usage;
         const choices = Array.isArray(chunk?.choices) ? chunk.choices : [];
         for (const choice of choices) {
@@ -435,6 +489,16 @@ export function openAIStreamToAnthropic(upstream, { model = "unknown" } = {}) {
       const flushToolsAndFinish = () => {
         ensureMessageStart();
         closeText();
+
+        if (streamError) {
+          // Terminal in-stream failure: emit an Anthropic error event and stop,
+          // instead of finishing a "successful" but empty message.
+          emit(sseEvent("error", {
+            type: "error",
+            error: { type: "api_error", message: streamError },
+          }));
+          return;
+        }
 
         const ordered = [...tools.values()].sort((a, b) => a.order - b.order);
         for (let i = 0; i < ordered.length; i++) {
@@ -509,6 +573,10 @@ export function openAIStreamToAnthropic(upstream, { model = "unknown" } = {}) {
             processChunk(chunk);
           }
         }
+        // Final TextDecoder flush: a multibyte (e.g. CJK) sequence split across
+        // the final network chunks stays buffered inside the decoder until a
+        // flush call; without this its trailing bytes could be dropped.
+        buffer += decoder.decode();
         if (buffer.trim()) {
           const data = getDataPayload(buffer);
           if (data && data !== "[DONE]") {

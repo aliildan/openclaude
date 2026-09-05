@@ -38,6 +38,10 @@ API Error: Content block not found
 - 不把第三方 reasoning 伪装成 Anthropic signed thinking block
 - `/v1/messages/count_tokens` 本地估算，避免 Agnes 404
 - OpenAI error → Anthropic error shape
+- 识别 SSE 流内错误（HTTP 200 但 data 中带 `{"error":...}`），转为终止性 Anthropic `error` 事件，避免客户端收到“成功的空回复”
+- 非流式响应体携带 error 或缺少 choices 时转为明确错误，而非空消息
+- 自动修复悬空 `tool_result`（如 /compact 或会话截断后首条即工具结果），补齐占位 assistant.tool_calls，避免 OpenAI 端 400
+- TextDecoder 结束时 flush，多字节（中文）内容被网络包从字节中间切开也不丢字、不乱码
 - 上游响应头阶段超时保护（默认 60s，可配 `timeoutMs`），避免网关挂起时永久卡死
 - `/v1/models` 可发现配置中的 Agnes 模型
 - 转换后的流再次经过 openclaude 原有 `stream-fixup.js`

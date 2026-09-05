@@ -80,3 +80,39 @@ test("dispatch still converts a normal OpenAI SSE stream end to end", async () =
   assert.ok(text.includes("event: message_stop"));
   assert.ok(text.includes("hi"));
 });
+
+async function nonStreamingDispatchWithBody(bodyObj) {
+  process.env.OC_PROVIDER_TEST_KEY = "sk-test";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(bodyObj), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    return await dispatch({
+      provider: provider({ timeoutMs: 1000 }),
+      modelId: "agnes-2.5-flash",
+      body: { messages: [], stream: false },
+      path: "/v1/messages",
+      signal: undefined,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+test("non-streaming body with an OpenAI error object is converted to an Anthropic error", async () => {
+  const res = await nonStreamingDispatchWithBody({ error: { message: "model not found", type: "invalid_request_error" } });
+  assert.equal(res.status, 502);
+  const json = await res.json();
+  assert.equal(json.type, "error");
+  assert.match(json.error.message, /model not found/);
+});
+
+test("non-streaming body with empty choices is converted to an Anthropic error", async () => {
+  const res = await nonStreamingDispatchWithBody({ id: "x", choices: [] });
+  assert.equal(res.status, 502);
+  const json = await res.json();
+  assert.match(json.error.message, /no choices/i);
+});

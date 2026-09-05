@@ -186,3 +186,67 @@ test("repeated-token argument deltas are concatenated, never dropped (P0 regress
   const delta = events.find((e) => e.data?.delta?.type === "input_json_delta").data.delta.partial_json;
   assert.deepEqual(JSON.parse(delta), { cmd: "ls && ls ls" });
 });
+
+test("a dangling tool_result (no preceding assistant tool_use) gets a placeholder assistant", () => {
+  // Happens after /compact or a truncated replay; OpenAI would 400 without a
+  // preceding assistant message carrying the matching tool_calls id.
+  const request = anthropicToOpenAIRequest({
+    messages: [
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_dangle", content: "ok" }] },
+      { role: "user", content: "continue" },
+    ],
+  }, "agnes-2.5-flash");
+  assert.equal(request.messages[0].role, "assistant");
+  assert.equal(request.messages[0].tool_calls[0].id, "toolu_dangle");
+  assert.equal(request.messages[1].role, "tool");
+  assert.equal(request.messages[1].tool_call_id, "toolu_dangle");
+  assert.equal(request.messages[2].role, "user");
+});
+
+test("a well-formed tool sequence is not altered by repair", () => {
+  const request = anthropicToOpenAIRequest({
+    messages: [
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_ok", name: "Bash", input: { command: "ls" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_ok", content: "done" }] },
+    ],
+  }, "agnes-2.5-flash");
+  assert.equal(request.messages[0].role, "assistant");
+  assert.equal(request.messages[1].role, "tool");
+  // No extra placeholder assistant inserted.
+  assert.equal(request.messages.length, 2);
+});
+
+test("an in-stream OpenAI error object becomes a terminal Anthropic error event", async () => {
+  const sse = [
+    `data: ${JSON.stringify({ id: "c", model: "agnes", choices: [{ delta: { content: "partial" }, finish_reason: null }] })}\n\n`,
+    `data: ${JSON.stringify({ error: { message: "rate limited mid-stream", type: "rate_limit_error" } })}\n\n`,
+  ].join("");
+  const out = await readStream(openAIStreamToAnthropic(streamFromText(sse), { model: "agnes" }));
+  const events = parseAnthropicSSE(out);
+  const errEvent = events.find((e) => e.event === "error");
+  assert.ok(errEvent, "must emit an error event");
+  assert.match(errEvent.data.error.message, /rate limited mid-stream/);
+  // error is terminal: no normal message_delta/message_stop after it
+  assert.ok(!events.some((e) => e.event === "message_stop"));
+});
+
+function byteStreamFromBytes(bytes, chunkSize) {
+  return new ReadableStream({
+    start(controller) {
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        controller.enqueue(bytes.slice(i, i + chunkSize));
+      }
+      controller.close();
+    },
+  });
+}
+
+test("multibyte CJK text split across single-byte network chunks is reassembled intact", async () => {
+  const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: "你好世界" }, finish_reason: "stop" }] })}\n\n` + "data: [DONE]\n\n";
+  const bytes = new TextEncoder().encode(sse);
+  for (const chunkSize of [1, 2, 3, 4, 5, 7]) {
+    const out = await readStream(openAIStreamToAnthropic(byteStreamFromBytes(bytes, chunkSize), { model: "agnes" }));
+    assert.ok(out.includes("你好世界"), `chunkSize=${chunkSize} must preserve CJK text`);
+    assert.ok(!out.includes("\uFFFD"), `chunkSize=${chunkSize} must not emit replacement chars`);
+  }
+});

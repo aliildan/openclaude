@@ -38,6 +38,17 @@ async function parseMaybeJson(response) {
   try { return { text, json: JSON.parse(text) }; }
   catch { return { text, json: null }; }
 }
+// An HTTP-200 body may still carry an OpenAI-style {error:{...}} object, or no
+// choices at all. Convert both into an Anthropic error instead of handing an
+// empty "success" message back to Claude Code.
+function upstreamBodyError(json) {
+  const e = json?.error;
+  if (e) return typeof e === "string" ? e : (e.message ?? e.type ?? "Upstream error");
+  if (!Array.isArray(json?.choices) || json.choices.length === 0) {
+    return "Upstream response contained no choices";
+  }
+  return null;
+}
 
 // Call the upstream with a timeout that only covers the connect + response-
 // headers phase. The timer is cleared as soon as headers arrive, so a
@@ -133,6 +144,10 @@ export async function dispatch({ provider, modelId, body, path, signal }) {
   const parsed = await parseMaybeJson(upstream);
   if (!parsed.json) {
     return jsonResponse(openAIErrorToAnthropic(502, `Invalid JSON from OpenAI-compatible upstream: ${parsed.text.slice(0, 300)}`), 502);
+  }
+  const bodyError = upstreamBodyError(parsed.json);
+  if (bodyError) {
+    return jsonResponse(openAIErrorToAnthropic(502, bodyError), 502);
   }
   const message = openAIJsonToAnthropic(parsed.json, modelId);
 
