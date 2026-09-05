@@ -1,0 +1,32 @@
+{
+  "port": 11436,
+  "defaultProvider": "claude",
+  "providers": {
+    "claude": {
+      "type": "anthropic-passthrough",
+      "baseUrl": "https://api.anthropic.com"
+    },
+    "ollama-local": {
+      "type": "ollama",
+      "baseUrl": "http://127.0.0.1:11434"
+    },
+    "agnes": {
+      "type": "openai-compatible",
+      "baseUrl": "https://api.agnes-ai.cn/v1",
+      "apiKey": "$AGNES_API_KEY",
+      "chatPath": "chat/completions",
+      "models": [
+        {
+          "id": "agnes-2.5-flash",
+          "display_name": "Agnes 2.5 Flash",
+          "description": "Agnes China · coding/tools/vision"
+        },
+        {
+          "id": "agnes-2.0-flash",
+          "display_name": "Agnes 2.0 Flash",
+          "description": "Agnes China · coding/tools"
+        }
+      ]
+    }
+  }
+}
