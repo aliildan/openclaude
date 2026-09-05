@@ -51,7 +51,12 @@ export async function saveConfig(cfg) {
 
 export function interpolateEnv(value) {
   if (typeof value !== "string") return value;
-  return value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? "");
+  // Accept both "$VAR" and "${VAR}", and lower/upper/mixed-case names. The
+  // previous regex only matched uppercase names without braces, so the common
+  // "${AGNES_API_KEY}" form was left untouched and sent as a literal Bearer
+  // token, producing a confusing 401. Keep this in sync with the matching
+  // regex used for the "env var unset" error messages.
+  return value.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (_, name) => process.env[name] ?? "");
 }
 
 // Parse a model identifier into { providerId, modelId }.

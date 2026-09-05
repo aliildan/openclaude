@@ -14,6 +14,8 @@
     "bin",
     "src",
     "README.md",
+    "README_zh-CN.md",
+    "config.agnes.example.json",
     "openclaude.png"
   ],
   "license": "MIT",
@@ -40,7 +42,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test test/router-routing.test.js test/router-e2e.test.js test/router-stream-error.test.js test/stream-fixup.test.js test/capabilities.test.js test/sanitize.test.js test/model-subagent.test.js test/model-internal-classifier.test.js test/auth.test.js test/openai-compatible.test.js",
+    "test": "node --test test/router-routing.test.js test/router-e2e.test.js test/router-stream-error.test.js test/stream-fixup.test.js test/capabilities.test.js test/sanitize.test.js test/model-subagent.test.js test/model-internal-classifier.test.js test/auth.test.js test/openai-compatible.test.js test/config.test.js test/provider-openai-compatible.test.js",
     "prepublishOnly": "npm test"
   }
 }

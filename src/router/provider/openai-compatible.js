@@ -39,6 +39,44 @@ async function parseMaybeJson(response) {
   catch { return { text, json: null }; }
 }
 
+// Call the upstream with a timeout that only covers the connect + response-
+// headers phase. The timer is cleared as soon as headers arrive, so a
+// legitimately long streaming body is never cut off. This guards against a
+// hung connection (the free Agnes pool can stall under load) that would
+// otherwise make Claude Code wait forever. A client disconnect still aborts
+// immediately. A timeout/network failure is returned as a synthetic 5xx
+// Response so the existing `!upstream.ok` error path handles it uniformly.
+async function fetchUpstream(url, init, clientSignal, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutMessage = `OpenAI-compatible upstream returned no response headers within ${timeoutMs}ms`;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(timeoutMessage));
+  }, timeoutMs);
+  const onClientAbort = () => controller.abort(clientSignal?.reason);
+  if (clientSignal) {
+    if (clientSignal.aborted) controller.abort(clientSignal.reason);
+    else clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  }
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (clientSignal?.aborted) throw err; // client hung up — upper layer logs quietly
+    const status = timedOut ? 504 : 502;
+    // On timeout use our own stable message: the underlying fetch's abort
+    // error message is implementation-defined and not guaranteed to carry it.
+    const detail = timedOut ? timeoutMessage : `Upstream fetch failed: ${err?.message ?? err}`;
+    return new Response(JSON.stringify(openAIErrorToAnthropic(status, detail)), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  } finally {
+    clearTimeout(timer);
+    clientSignal?.removeEventListener?.("abort", onClientAbort);
+  }
+}
+
 export async function dispatch({ provider, modelId, body, path, signal }) {
   if (path.endsWith("/count_tokens")) {
     return jsonResponse({ input_tokens: estimateAnthropicInputTokens(body) });
@@ -61,12 +99,14 @@ export async function dispatch({ provider, modelId, body, path, signal }) {
     }
   }
 
-  const upstream = await fetch(url, {
+  const timeoutMs = Number.isFinite(provider.timeoutMs) && provider.timeoutMs > 0
+    ? provider.timeoutMs
+    : 60000;
+  const upstream = await fetchUpstream(url, {
     method: "POST",
     headers,
     body: JSON.stringify(openAIBody),
-    signal,
-  });
+  }, signal, timeoutMs);
 
   if (!upstream.ok) {
     const parsed = await parseMaybeJson(upstream);

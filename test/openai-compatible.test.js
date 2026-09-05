@@ -163,3 +163,26 @@ test("token estimate is positive and accounts for CJK", () => {
   assert.ok(a > 0);
   assert.ok(b > a);
 });
+
+test("repeated-token argument deltas are concatenated, never dropped (P0 regression)", async () => {
+  // The model emits a repeated token across deltas: "ls && ls" then " ls".
+  // A endsWith/startsWith de-dup heuristic would swallow the second " ls" and
+  // silently rewrite the command. Incremental deltas must be appended verbatim.
+  const chunks = [
+    { choices: [{ delta: { tool_calls: [
+      { index: 0, id: "call_r", type: "function", function: { name: "Bash", arguments: '{"cmd":"ls && ls' } },
+    ] }, finish_reason: null }] },
+    { choices: [{ delta: { tool_calls: [
+      { index: 0, function: { arguments: " ls" } },
+    ] }, finish_reason: null }] },
+    { choices: [{ delta: { tool_calls: [
+      { index: 0, function: { arguments: '"}' } },
+    ] }, finish_reason: null }] },
+    { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+  ];
+  const sse = chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join("") + "data: [DONE]\n\n";
+  const out = await readStream(openAIStreamToAnthropic(streamFromText(sse, [5, 40, 90]), { model: "agnes" }));
+  const events = parseAnthropicSSE(out);
+  const delta = events.find((e) => e.data?.delta?.type === "input_json_delta").data.delta.partial_json;
+  assert.deepEqual(JSON.parse(delta), { cmd: "ls && ls ls" });
+});

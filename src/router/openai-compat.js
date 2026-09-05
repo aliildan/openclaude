@@ -381,7 +381,15 @@ export function openAIStreamToAnthropic(upstream, { model = "unknown" } = {}) {
         }
         state.id = appendFragment(state.id, tc?.id);
         state.name = appendFragment(state.name, tc?.function?.name);
-        state.args = appendFragment(state.args, tc?.function?.arguments);
+        // Tool-call argument deltas are INCREMENTAL in the OpenAI spec, so they
+        // must be concatenated verbatim. Running them through appendFragment()
+        // (which drops a fragment the buffer endsWith/startsWith) silently eats
+        // bytes whenever the model emits a repeated token, e.g. args
+        // `{"cmd":"ls && ls` followed by delta ` ls` would lose that delta and
+        // execute a rewritten command. Only id/name — which some gateways repeat
+        // in every chunk — need fragment de-duplication.
+        const argDelta = tc?.function?.arguments;
+        if (typeof argDelta === "string") state.args += argDelta;
       };
 
       const processChunk = (chunk) => {
