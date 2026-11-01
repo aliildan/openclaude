@@ -4,6 +4,7 @@ import { listLocalOllamaModels } from "../cli/ollama.js";
 import { sanitizeToolIds, sanitizeThinkingBlocks } from "./sanitize.js";
 import * as anthropicPassthrough from "./provider/anthropic-passthrough.js";
 import * as ollama from "./provider/ollama.js";
+import * as openaiCompatible from "./provider/openai-compatible.js";
 
 // Claude Code's discovery filter only keeps /v1/models entries whose id starts
 // with "claude" or "anthropic". So Ollama entries are exposed as
@@ -26,6 +27,7 @@ function decodeOllamaDiscoveryId(model) {
 const PROVIDER_IMPL = {
   "anthropic-passthrough": anthropicPassthrough,
   ollama,
+  "openai-compatible": openaiCompatible,
 };
 
 function log(...args) {
@@ -186,6 +188,27 @@ async function handleModels(_req, res, cfg) {
   const date = new Date().toISOString();
 
   for (const [providerId, provider] of Object.entries(cfg.providers ?? {})) {
+    // openclaude-agnes: configured OpenAI-compatible model discovery
+    if (provider.type === "openai-compatible") {
+      if (provider.apiKey && !interpolateEnv(provider.apiKey)) {
+        log(`skipping discovery for "${providerId}" — apiKey template "${provider.apiKey}" resolves to empty`);
+        continue;
+      }
+      const configured = Array.isArray(provider.models) ? provider.models : [];
+      for (const entry of configured) {
+        const name = typeof entry === "string" ? entry : entry?.id;
+        if (!name) continue;
+        const id = ollamaDiscoveryId(providerId, name);
+        data.push({
+          type: "model",
+          id,
+          display_name: typeof entry === "object" && entry?.display_name ? entry.display_name : `${name} (${providerId})`,
+          description: typeof entry === "object" && entry?.description ? entry.description : `OpenAI-compatible · ${providerId}`,
+          created_at: date,
+        });
+      }
+      continue;
+    }
     if (provider.type !== "ollama") continue;
     // If a provider declared an apiKey template (e.g. "$OLLAMA_API_KEY") but
     // the env var is unset, the provider would 401 on every call. Skip it

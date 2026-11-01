@@ -76,7 +76,7 @@ export async function start(args) {
   // Warn about providers whose apiKey template can't be resolved. Without this,
   // a missing env var manifests as a silent 401 retry loop inside Claude Code.
   for (const [pid, p] of Object.entries(cfg.providers ?? {})) {
-    if (p.type !== "ollama" || !p.apiKey) continue;
+    if (!["ollama", "openai-compatible"].includes(p.type) || !p.apiKey) continue;
     if (interpolateEnv(p.apiKey)) continue;
     const missing = p.apiKey.match(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/)?.[1];
     console.error(`[openclaude] WARNING: provider "${pid}" needs ${missing ? `env var ${missing}` : `apiKey "${p.apiKey}"`} — currently unset.`);
