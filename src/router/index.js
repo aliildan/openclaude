@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
 import { loadConfig, parseModelTarget, interpolateEnv } from "./config.js";
 import { listLocalOllamaModels } from "../cli/ollama.js";
 import { sanitizeToolIds, sanitizeThinkingBlocks } from "./sanitize.js";
@@ -279,7 +280,15 @@ export async function startRouter(port) {
   return { server, port: listenPort };
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+// Detect "run as the entry script". The previous form built the URL by string
+// concatenation (`file://${process.argv[1]}`), which only matches on POSIX:
+// on Windows argv[1] is `C:\...`, producing `file://C:\...` while
+// `import.meta.url` is `file:///C:/...`. The comparison never held, so
+// `node src/router/index.js` exited 0 immediately without listening — every
+// router-spawning test and `npm start` failed on Windows. pathToFileURL
+// normalizes drive letters, backslashes and spaces correctly on all platforms.
+const isMain = Boolean(process.argv[1])
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = process.env.OPENCLAUDE_PORT ? Number(process.env.OPENCLAUDE_PORT) : undefined;
   startRouter(port).catch((err) => { console.error(err); process.exit(1); });
